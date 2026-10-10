@@ -1,6 +1,23 @@
+# Frontend
 Frontend/.expo/
 Frontend/.expo-shared/
 Frontend/node_modules/
 Frontend/.vscode/
 Frontend/expo-env.d.ts
+
+# Backend
 Backend/node_modules/
+Backend/server.log
+
+# Environment (never commit secrets)
+.env
+
+# Scraper intermediate files
+scraper/dawaai_raw.jsonl
+scraper/dawaai_failed.txt
+scraper/scrape.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp

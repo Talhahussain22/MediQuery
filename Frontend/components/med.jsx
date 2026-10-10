@@ -465,7 +465,7 @@ export default function Med() {
                 />
                 <Detail
                   label="Price"
-                  value={`₹${selectedMedicine?.price}`}
+                  value={`Rs ${selectedMedicine?.price}`}
                   colors={colors}
                 />
                 <Detail
@@ -504,8 +504,8 @@ export default function Med() {
                   colors={colors}
                 />
                 <Detail
-                  label="Habit Forming"
-                  value={selectedMedicine?.["Habit Forming"]}
+                  label="Prescription Required"
+                  value={selectedMedicine?.["Prescription Required"]}
                   colors={colors}
                 />
                 <Detail
@@ -558,7 +558,7 @@ function MedicineCard({ data, onLongPress, colors, isPrimary = false }) {
             {data.name || "N/A"}
           </Text>
           <Text style={[styles.price, { color: colors.price }]}>
-            ₹ {data.price || "N/A"}
+            Rs {data.price || "N/A"}
           </Text>
         </View>
         <Text numberOfLines={1} style={{ marginTop: 4 }}>

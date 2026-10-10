@@ -2,11 +2,12 @@
   "name": "mediquery-backend",
   "version": "1.0.0",
   "description": "Backend server for MediQuery app — provides medicine search, details, and suggestions via MongoDB Atlas.",
-  "main": "index.js",
+  "main": "services/server.js",
   "type": "commonjs",
   "scripts": {
-    "start": "node index.js",
-    "dev": "nodemon index.js"
+    "start": "node services/server.js",
+    "dev": "nodemon services/server.js",
+    "import": "node services/import_data.js"
   },
   "keywords": [
     "express",

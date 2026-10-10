@@ -4,7 +4,8 @@
 const ENV = {
   dev: {
     // use LAN_IP from .env or fallback
-    API_BASE: "http://192.168.29.252:5000",
+    // your PC's Wi-Fi IPv4 (run `ipconfig`); phone must be on the same Wi-Fi
+    API_BASE: "http://10.57.124.186:5000",
     // API_BASE: "http://medi-query.onrender.com", // 👈 replace with your LAN IPv4 from ipconfig
   },
   prod: {
