@@ -10,6 +10,7 @@ Usage:
 import argparse
 import csv
 import json
+import os
 import re
 import threading
 import time
@@ -29,7 +30,7 @@ SITEMAPS = [
     "https://dawaai.pk/sitemap_new.xml",
 ]
 HEADERS = {"User-Agent": "Mozilla/5.0 (MediQuery student project scraper)"}
-WORKERS = 3
+WORKERS = 6
 DELAY = 0.7  # seconds between requests per worker
 
 COLUMNS = [
@@ -44,10 +45,25 @@ COLUMNS = [
 lock = threading.Lock()
 
 
+URL_CACHE = HERE / "dawaai_urls.txt"
+
+
+def fetch_sitemap(url):
+    for attempt in range(4):
+        try:
+            return requests.get(url, headers=HEADERS, timeout=120).text
+        except requests.RequestException as e:
+            print(f"sitemap {url} failed ({e}); retrying", flush=True)
+            time.sleep(10 * (attempt + 1))
+    raise RuntimeError(f"could not download {url}")
+
+
 def get_medicine_urls():
+    if URL_CACHE.exists():
+        return URL_CACHE.read_text(encoding="utf-8").split()
     urls = set()
     for sm in SITEMAPS:
-        xml = requests.get(sm, headers=HEADERS, timeout=60).text
+        xml = fetch_sitemap(sm)
         for loc in re.findall(r"<loc>([^<]+)</loc>", xml):
             loc = loc.strip()
             if "/medicine/" not in loc:
@@ -56,7 +72,9 @@ def get_medicine_urls():
             m = re.match(r"(https://dawaai\.pk/medicine/.*?\.html)", loc)
             if m:
                 urls.add(m.group(1))
-    return sorted(urls)
+    urls = sorted(urls)
+    URL_CACHE.write_text("\n".join(urls), encoding="utf-8")
+    return urls
 
 
 def clean(text):
@@ -211,6 +229,9 @@ def scrape(limit=None):
             ok += fut.result()
             if i % 200 == 0 or i == len(urls):
                 print(f"{i}/{len(urls)} processed, {ok} parsed", flush=True)
+            if i % 1000 == 0:
+                with lock:
+                    build_csv()
 
 
 def pack_size(h1, short_name, dosage_form):
@@ -258,11 +279,14 @@ def build_csv():
             "url": r["url"],
         })
 
-    with OUT_CSV.open("w", newline="", encoding="utf-8") as f:
+    # write-then-rename so the backend's file watcher never sees a partial CSV
+    tmp = OUT_CSV.with_suffix(".csv.tmp")
+    with tmp.open("w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=COLUMNS)
         w.writeheader()
         w.writerows(rows)
-    print(f"Wrote {len(rows)} medicines to {OUT_CSV}")
+    os.replace(tmp, OUT_CSV)
+    print(f"Wrote {len(rows)} medicines to {OUT_CSV}", flush=True)
 
 
 if __name__ == "__main__":

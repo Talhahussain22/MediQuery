@@ -15,9 +15,14 @@ Backend/server.log
 # Scraper intermediate files
 scraper/dawaai_raw.jsonl
 scraper/dawaai_failed.txt
+scraper/dawaai_urls.txt
+scraper/scrape.err.log
+Backend/server.err.log
+*.csv.tmp
 scraper/scrape.log
 
 # OS / editor
 .DS_Store
 Thumbs.db
 *.swp
+build-apk.log

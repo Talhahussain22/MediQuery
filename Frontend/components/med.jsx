@@ -14,12 +14,13 @@ import {
   Animated,
   Easing,
   ScrollView,
+  Keyboard,
 } from "react-native";
 import { SvgXml } from "react-native-svg";
+import { Ionicons } from "@expo/vector-icons";
 import config from "../config";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const API_BASE = config.API_BASE;
 const HISTORY_KEY = "MED_SEARCH_HISTORY";
 
 // Refresh icon SVG
@@ -44,6 +45,7 @@ export default function Med() {
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [selectedMedicine, setSelectedMedicine] = useState(null);
   const [history, setHistory] = useState([]);
+  const [searchError, setSearchError] = useState("");
   const spinAnim = useRef(new Animated.Value(0)).current;
   const [iconActive, setIconActive] = useState(false);
 
@@ -59,6 +61,7 @@ export default function Med() {
     price: "#16A34A",
     button: "#0EA5A4",
     placeholder: "#94A3B8",
+    border: colorScheme === "dark" ? "#3F444B" : "#CBD5E1",
     overlay: "rgba(0,0,0,0.7)",
   };
 
@@ -116,6 +119,7 @@ export default function Med() {
     ]).start(() => setIconActive(false));
 
     setMedicineName("");
+    setSearchError("");
     setSearchResult(null);
     setSimilarMeds([]);
     setSuggestions([]);
@@ -126,8 +130,13 @@ export default function Med() {
     outputRange: ["180deg", "0deg"],
   });
 
-  const handleSearch = async () => {
-    if (!medicineName.trim()) return;
+  const handleSearch = async (nameArg) => {
+    const query = (typeof nameArg === "string" ? nameArg : medicineName).trim();
+    if (!query) return;
+    setMedicineName(query);
+    Keyboard.dismiss();
+    setSuggestions([]);
+    setSearchError("");
 
     // Abort previous search
     if (searchAbortRef.current) {
@@ -141,47 +150,53 @@ export default function Med() {
       setLoadingSearch(true);
 
       const res = await fetch(
-        `${API_BASE}/medicine?name=${encodeURIComponent(medicineName)}`,
+        `${config.API_BASE}/medicine?name=${encodeURIComponent(query)}`,
         { signal: controller.signal },
       );
 
+      if (res.status === 404) {
+        setSearchResult(null);
+        setSimilarMeds([]);
+        setSearchError(`No medicine found for "${query}".`);
+        return;
+      }
       if (!res.ok) throw new Error("Medicine fetch failed");
 
       const json = await res.json();
       setSearchResult(json || null);
-      updateHistory(medicineName.trim());
+      updateHistory(json?.name || query);
 
       let subs = [];
 
       if (json) {
-        const substituteKeys = [
-          "substitute0",
-          "substitute1",
-          "substitute2",
-          "substitute3",
-          "substitute4",
-        ];
+        const getJson = (url) =>
+          fetch(url, { signal: controller.signal })
+            .then((r) => (r.ok ? r.json() : null))
+            .catch(() => null);
 
-        for (const key of substituteKeys) {
-          if (!json[key]) continue;
+        // Same-composition medicines from our own dataset, plus the
+        // pharmacy's listed substitutes (only those we have data for).
+        const sameComposition = json.short_composition1
+          ? getJson(
+              `${config.API_BASE}/similar?comp1=${encodeURIComponent(json.short_composition1)}` +
+                (json.short_composition2
+                  ? `&comp2=${encodeURIComponent(json.short_composition2)}`
+                  : ""),
+            )
+          : Promise.resolve([]);
+        const listed = [0, 1, 2, 3, 4]
+          .map((i) => json[`substitute${i}`])
+          .filter(Boolean)
+          .map((n) => getJson(`${config.API_BASE}/medicine?name=${encodeURIComponent(n)}`));
 
-          try {
-            const subRes = await fetch(
-              `${API_BASE}/medicine?name=${encodeURIComponent(json[key])}`,
-              { signal: controller.signal },
-            );
+        const [similar, ...listedResults] = await Promise.all([sameComposition, ...listed]);
 
-            if (subRes.ok) {
-              const subJson = await subRes.json();
-              subs.push(subJson || { name: json[key] });
-            } else {
-              subs.push({ name: json[key] });
-            }
-          } catch (err) {
-            if (err.name !== "AbortError") {
-              subs.push({ name: json[key] });
-            }
-          }
+        const seen = new Set([json.name?.toLowerCase()]);
+        for (const s of [...(similar || []), ...listedResults]) {
+          const key = s?.name?.toLowerCase();
+          if (!key || seen.has(key)) continue;
+          seen.add(key);
+          subs.push(s);
         }
 
         subs.sort((a, b) => {
@@ -191,11 +206,14 @@ export default function Med() {
         });
       }
 
-      setSimilarMeds(subs);
+      setSimilarMeds(subs.slice(0, 15));
     } catch (err) {
       if (err.name !== "AbortError") {
         console.error("Search error:", err.message);
         setSimilarMeds([]);
+        setSearchError(
+          `Could not reach the server at ${config.API_BASE}. Check your Wi-Fi, or update the server address in Profile.`,
+        );
       }
     } finally {
       setLoadingSearch(false);
@@ -226,7 +244,7 @@ export default function Med() {
 
       try {
         const res = await fetch(
-          `${API_BASE}/suggestions?q=${encodeURIComponent(text)}`,
+          `${config.API_BASE}/suggestions?q=${encodeURIComponent(text)}`,
           { signal: controller.signal },
         );
 
@@ -246,13 +264,13 @@ export default function Med() {
   };
 
   const handleSuggestionPress = (item) => {
-    if (!item) return;
-    setMedicineName(item.name || "");
-    setSuggestions([]);
+    if (!item?.name) return;
+    if (suggestionDebounceRef.current) clearTimeout(suggestionDebounceRef.current);
+    handleSearch(item.name);
   };
 
   const renderHeader = () => (
-    <View style={{ paddingBottom: 0, color: colors.text }}>
+    <View style={{ flex: 1 }}>
       <View
         style={{
           flexDirection: "row",
@@ -261,7 +279,7 @@ export default function Med() {
         }}
       >
         <Text style={[styles.title, { color: colors.text }]}>
-          Medical Enquiry
+          Find a medicine
         </Text>
         <TouchableOpacity onPress={handleReset}>
           <Animated.View style={{ transform: [{ rotate: spin }] }}>
@@ -274,8 +292,6 @@ export default function Med() {
         </TouchableOpacity>
       </View>
 
-      <Text style={[styles.label, { color: colors.label }]}>Tablet Name:</Text>
-
       <View style={{ zIndex: 10 }}>
         <TextInput
           style={[
@@ -287,31 +303,56 @@ export default function Med() {
             },
           ]}
           value={medicineName}
-          placeholder="Enter tablet name"
+          placeholder="e.g. Panadol, Augmentin, Brufen"
+          returnKeyType="search"
+          onSubmitEditing={() => handleSearch()}
           placeholderTextColor={colors.placeholder}
           onChangeText={handleInputChange}
         />
+      </View>
 
-        {medicineName.length > 0 && suggestions.length > 0 && (
+      <TouchableOpacity
+        style={[styles.button, { backgroundColor: colors.button }]}
+        onPress={() => handleSearch()}
+        disabled={loadingSearch}
+      >
+        {loadingSearch ? (
+          <ActivityIndicator size="small" color="#fff" />
+        ) : (
+          <Text style={styles.buttonText}>Search</Text>
+        )}
+      </TouchableOpacity>
+
+        {medicineName.length > 0 && (loadingSuggestions || suggestions.length > 0) && (
           <View
             style={[
               styles.suggestionBox,
-              { backgroundColor: colors.card, borderColor: colors.label },
+              { backgroundColor: colors.card, borderColor: colors.border },
             ]}
           >
-            {loadingSuggestions ? (
-              <ActivityIndicator size="small" color={colors.button} />
+            {loadingSuggestions && suggestions.length === 0 ? (
+              <ActivityIndicator
+                style={{ padding: 12 }}
+                size="small"
+                color={colors.button}
+              />
             ) : (
               <FlatList
                 data={suggestions.filter((item) => item && item.name)}
                 keyExtractor={(item, index) => item._id || index.toString()}
-                renderItem={({ item }) => (
+                keyboardShouldPersistTaps="handled"
+                renderItem={({ item, index }) => (
                   <TouchableOpacity
-                    style={styles.suggestionItemWrapper}
+                    style={[
+                      styles.suggestionItemWrapper,
+                      index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+                    ]}
                     onPress={() => handleSuggestionPress(item)}
                   >
+                    <Ionicons name="medkit-outline" size={16} color={colors.button} />
                     <Text
                       style={[styles.suggestionItem, { color: colors.text }]}
+                      numberOfLines={1}
                     >
                       {item.name}
                     </Text>
@@ -321,85 +362,46 @@ export default function Med() {
             )}
           </View>
         )}
-      </View>
-
-      <TouchableOpacity
-        style={[styles.button, { backgroundColor: colors.button }]}
-        onPress={handleSearch}
-      >
-        {loadingSearch ? (
-          <ActivityIndicator size="small" color="#fff" />
-        ) : (
-          <Text style={styles.buttonText}>Search</Text>
-        )}
-      </TouchableOpacity>
 
       <ScrollView
-        style={{ maxHeight: "73%", padding: 0, borderRadius: 18 }}
+        style={{ flex: 1 }}
         contentContainerStyle={{ paddingBottom: 16 }}
+        keyboardShouldPersistTaps="handled"
       >
-        {history.length > 0 ? (
-          <View>
-            <Text
-              style={{
-                color: colors.label,
-                fontWeight: "700",
-                paddingTop: 10,
-                paddingLeft: 10,
-              }}
-            >
-              Search History :
-            </Text>
-
-            {history.map((item, index) => (
-              <View
-                key={index}
-                style={{
-                  paddingLeft: 10,
-                  flexDirection: "row",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  width: "95%",
-                  paddingVertical: 2,
-                }}
-              >
-                <Text
-                  style={{ color: colors.placeholder, flex: 1, paddingLeft: 8 }}
-                >
-                  {item}
-                </Text>
-                <TouchableOpacity
-                  onPress={() => setMedicineName(item)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Text
-                    style={{
-                      color: colors.text,
-                      fontSize: 18,
-                      paddingLeft: 12,
-                    }}
-                  >
-                    {"\u00A0\u031A"}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            ))}
+        {!!searchError && (
+          <View style={[styles.messageBox, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Ionicons name="alert-circle-outline" size={20} color="#DC2626" />
+            <Text style={{ color: colors.text, flex: 1, marginLeft: 8 }}>{searchError}</Text>
           </View>
-        ) : (
-          <Text
-            style={{
-              color: colors.placeholder,
-              paddingLeft: 10,
-              flexDirection: "row",
-              alignItems: "center",
-              justifyContent: "space-between",
-              width: "95%",
-              paddingVertical: 2,
-            }}
-          >
-            No history yet
-          </Text>
         )}
+
+        {!searchResult && !searchError && suggestions.length === 0 && (
+          history.length > 0 ? (
+            <View style={{ marginTop: 8 }}>
+              <Text style={[styles.sectionTitle, { color: colors.label }]}>
+                Recent searches
+              </Text>
+              {[...history].reverse().map((item) => (
+                <TouchableOpacity
+                  key={item}
+                  style={[styles.historyRow, { borderBottomColor: colors.border }]}
+                  onPress={() => handleSearch(item)}
+                >
+                  <Ionicons name="time-outline" size={18} color={colors.placeholder} />
+                  <Text style={{ color: colors.text, flex: 1, marginLeft: 10 }} numberOfLines={1}>
+                    {item}
+                  </Text>
+                  <Ionicons name="chevron-forward" size={18} color={colors.placeholder} />
+                </TouchableOpacity>
+              ))}
+            </View>
+          ) : (
+            <Text style={{ color: colors.placeholder, textAlign: "center", marginTop: 24 }}>
+              Search a medicine to see its price, composition and cheaper alternatives.
+            </Text>
+          )
+        )}
+
         {searchResult && (
           <MedicineCard
             data={searchResult}
@@ -410,11 +412,9 @@ export default function Med() {
         )}
 
         {similarMeds.length > 0 && (
-          <View style={{ marginTop: 16 }}>
-            <Text
-              style={[styles.label, { color: colors.text, fontWeight: "700" }]}
-            >
-              Suggested:
+          <View style={{ marginTop: 8 }}>
+            <Text style={[styles.sectionTitle, { color: colors.text }]}>
+              Alternatives ({similarMeds.length}) — cheapest first
             </Text>
 
             {similarMeds.map((med, idx) => (
@@ -465,7 +465,7 @@ export default function Med() {
                 />
                 <Detail
                   label="Price"
-                  value={`Rs ${selectedMedicine?.price}`}
+                  value={selectedMedicine?.price ? `Rs ${selectedMedicine.price}` : null}
                   colors={colors}
                 />
                 <Detail
@@ -544,11 +544,7 @@ function MedicineCard({ data, onLongPress, colors, isPrimary = false }) {
         { backgroundColor: colors.card, marginBottom: 12 },
       ]}
     >
-      <TouchableOpacity
-        onLongPress={() => {
-          if (onLongPress) onLongPress();
-        }}
-      >
+      <TouchableOpacity onPress={onLongPress} onLongPress={onLongPress}>
         <View style={styles.resultHeader}>
           <Text
             style={[styles.resultTitle, { color: colors.text }]}
@@ -558,26 +554,25 @@ function MedicineCard({ data, onLongPress, colors, isPrimary = false }) {
             {data.name || "N/A"}
           </Text>
           <Text style={[styles.price, { color: colors.price }]}>
-            Rs {data.price || "N/A"}
+            {data.price ? `Rs ${data.price}` : "Price N/A"}
           </Text>
         </View>
         <Text numberOfLines={1} style={{ marginTop: 4 }}>
           <Text style={{ fontWeight: "700", color: colors.label }}>
-            Manufacturer:
+            Manufacturer:{" "}
           </Text>
-          <Text style={{ color: textColor }}>{data.manufacturer_name}</Text>
+          <Text style={{ color: textColor }}>{data.manufacturer_name || "—"}</Text>
         </Text>
         <Text numberOfLines={2} style={{ marginTop: 2 }}>
           <Text style={{ fontWeight: "700", color: colors.label }}>
-            Components:
+            Composition:{" "}
           </Text>
           <Text style={{ color: textColor }}>
-            {data.short_composition1}{" "}
-            {data.short_composition2 ? `, ${data.short_composition2}` : ""}
+            {[data.short_composition1, data.short_composition2].filter(Boolean).join(" + ") || "—"}
           </Text>
         </Text>
-        <Text style={{ fontSize: 12, marginTop: 4, color: colors.label }}>
-          (Long press for details)
+        <Text style={{ fontSize: 12, marginTop: 6, color: colors.button }}>
+          Tap for details
         </Text>
       </TouchableOpacity>
     </View>
@@ -598,14 +593,24 @@ function Detail({ label, value, colors }) {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flexGrow: 1,
-    padding: 8,
-    backgroundColor: "#202020b0",
-    borderRadius: 18,
-  },
+  container: { flex: 1 },
   title: { fontSize: 22, fontWeight: "700", marginBottom: 12 },
   label: { fontSize: 16, fontWeight: "500", marginBottom: 8 },
+  sectionTitle: { fontSize: 15, fontWeight: "700", marginBottom: 4, marginTop: 4 },
+  historyRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  messageBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 8,
+  },
   input: {
     borderWidth: 1,
     borderRadius: 14,
@@ -616,17 +621,17 @@ const styles = StyleSheet.create({
   suggestionBox: {
     borderWidth: 1,
     borderRadius: 14,
-    marginTop: 4,
-    maxHeight: 260,
+    marginBottom: 8,
+    maxHeight: 300,
     overflow: "hidden",
   },
   suggestionItemWrapper: {
+    flexDirection: "row",
+    alignItems: "center",
     paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderBottomWidth: 0.5,
-    borderBottomColor: "#ccc",
+    paddingVertical: 12,
   },
-  suggestionItem: { fontSize: 14 },
+  suggestionItem: { fontSize: 15, marginLeft: 10, flex: 1 },
   button: {
     paddingVertical: 12,
     borderRadius: 14,

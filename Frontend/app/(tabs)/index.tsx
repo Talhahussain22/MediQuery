@@ -29,7 +29,10 @@ export default function HomeScreen() {
           <Text
             style={[styles.header, { color: isDark ? "#fff" : "#1E293B" }]}
           >
-            Home Screen
+            MediQuery
+          </Text>
+          <Text style={[styles.subheader, { color: isDark ? "#94A3B8" : "#64748B" }]}>
+            Medicine prices &amp; alternatives in Pakistan
           </Text>
 
           {/* Med Component wrapped to scroll if overflowing */}
@@ -42,10 +45,11 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flexGrow: 1, padding: 16, paddingBottom: 8 },
-  header: { fontSize: 20, fontWeight: "700", textAlign: "left", marginTop: 20 },
+  container: { flex: 1, padding: 16, paddingBottom: 8 },
+  header: { fontSize: 24, fontWeight: "700", textAlign: "left", marginTop: 20 },
+  subheader: { fontSize: 14, marginTop: 2 },
   medContainer: {
-    marginTop: 20,
+    marginTop: 16,
     flex: 1,
     borderRadius: 20,
     padding: 16,

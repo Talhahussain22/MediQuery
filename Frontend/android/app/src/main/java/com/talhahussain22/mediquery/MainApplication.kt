@@ -1,4 +1,4 @@
-package com.surath83.mediquery
+package com.talhahussain22.mediquery
 
 import android.app.Application
 import android.content.res.Configuration

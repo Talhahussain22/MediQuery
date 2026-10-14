@@ -51,11 +51,25 @@ export default function ProfileCard({name, age, height, weight, gender}) {
         </Pressable>
       </View>
 
-      <Text style={[styles.text, { color: isDark ? "#CBD5E1" : "#334155" }]}>
-        {visible
-          ? `Age: ${age} yr     Ht: ${height} cm      Wt: ${weight} kg`
-          : "Age: .. yr       Ht: .... cm         Wt: .. kg"}
-      </Text>
+      <View style={styles.statsRow}>
+        {[
+          ["Age", `${age} yr`],
+          ["Height", `${height} cm`],
+          ["Weight", `${weight} kg`],
+        ].map(([label, value]) => (
+          <View key={label} style={styles.stat}>
+            <Text style={[styles.statLabel, { color: isDark ? "#94A3B8" : "#64748B" }]}>
+              {label}
+            </Text>
+            <Text
+              style={[styles.statValue, { color: isDark ? "#E2E8F0" : "#1E293B" }]}
+              numberOfLines={1}
+            >
+              {visible ? value : "••"}
+            </Text>
+          </View>
+        ))}
+      </View>
 
       <Text style={[styles.text, { color: isDark ? "#CBD5E1" : "#334155" }]}>
         BMI: {bmi}
@@ -93,6 +107,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginVertical: 6,
   },
+  statsRow: { flexDirection: "row", marginBottom: 8 },
+  stat: { flex: 1 },
+  statLabel: { fontSize: 13 },
+  statValue: { fontSize: 17, fontWeight: "600", marginTop: 2 },
   eyeButton: {
     padding: 6,
     borderRadius: 50,

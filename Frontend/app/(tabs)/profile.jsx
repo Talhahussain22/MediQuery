@@ -17,12 +17,82 @@ import {
 import { BlurView } from "expo-blur";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import Profile_Card from "@/components/profile_card";
+import config, { normalizeApiBase, setApiBase } from "@/config";
+
+function ServerSettings({ s, isDark }) {
+  const [address, setAddress] = useState(config.API_BASE);
+  const [status, setStatus] = useState("");
+
+  const test = async (url) => {
+    setStatus("Testing...");
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 6000);
+    try {
+      const res = await fetch(`${url}/suggestions?q=a`, { signal: controller.signal });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setStatus("Connected ✓");
+      return true;
+    } catch {
+      setStatus("Could not connect. Check the address and that the server is running.");
+      return false;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  const save = async () => {
+    const url = normalizeApiBase(address);
+    if (!url) return;
+    setAddress(url);
+    if (await test(url)) await setApiBase(url);
+  };
+
+  return (
+    <View style={s.settingsCard}>
+      <Text style={s.settingsTitle}>Server address</Text>
+      <Text style={s.settingsHint}>
+        The PC running the MediQuery backend, e.g. 192.168.0.104:5000
+      </Text>
+      <TextInput
+        style={s.input}
+        value={address}
+        onChangeText={setAddress}
+        autoCapitalize="none"
+        autoCorrect={false}
+        keyboardType="url"
+        placeholder="http://192.168.0.104:5000"
+        placeholderTextColor={isDark ? "#64748B" : "#94A3B8"}
+      />
+      <View style={{ flexDirection: "row", gap: 8, marginTop: 4 }}>
+        <Pressable
+          style={[s.button, s.secondaryButton, { flex: 1 }]}
+          onPress={() => test(normalizeApiBase(address))}
+        >
+          <Text style={s.secondaryButtonText}>Test</Text>
+        </Pressable>
+        <Pressable style={[s.button, s.editButton, { flex: 1, maxWidth: undefined }]} onPress={save}>
+          <Text style={s.buttonText}>Save</Text>
+        </Pressable>
+      </View>
+      {!!status && (
+        <Text
+          style={[
+            s.settingsHint,
+            { marginTop: 6, color: status.startsWith("Connected") ? "#16A34A" : status === "Testing..." ? undefined : "#DC2626" },
+          ]}
+        >
+          {status}
+        </Text>
+      )}
+    </View>
+  );
+}
 
 const PROFILE_KEY = "USER_PROFILE_V1";
 const genderOptions = ["male", "female", "other"];
 
 const DEFAULT_PROFILE = {
-  name: "john",
+  name: "Guest",
   age: 25,
   height: 160,
   weight: 70,
@@ -81,8 +151,8 @@ export default function Profile() {
       <ScrollView
         contentContainerStyle={{
           flexGrow: 1,
-          justifyContent: "center",
           padding: 16,
+          paddingTop: 20,
         }}
       >
         <Text style={dynamicStyles.header}>Profile</Text>
@@ -95,29 +165,33 @@ export default function Profile() {
         >
           <Text style={dynamicStyles.buttonText}>Edit Profile</Text>
         </Pressable>
+
+        <ServerSettings s={dynamicStyles} isDark={isDark} />
       </ScrollView>
 
       {/* Edit Modal */}
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
-      >
         <Modal
           visible={editModalVisible}
           animationType="fade"
           transparent
           statusBarTranslucent
+          onRequestClose={() => setEditModalVisible(false)}
         >
           <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-            <View style={dynamicStyles.modalOverlay}>
+            <KeyboardAvoidingView
+              style={dynamicStyles.modalOverlay}
+              behavior={Platform.OS === "ios" ? "padding" : "height"}
+            >
               <BlurView
                 intensity={80}
                 tint={isDark ? "dark" : "light"}
                 style={dynamicStyles.blur}
               />
 
-              <View style={dynamicStyles.modalContent}>
+              <ScrollView
+                style={dynamicStyles.modalContent}
+                keyboardShouldPersistTaps="handled"
+              >
                 <Text style={dynamicStyles.modalTitle}>Edit Profile</Text>
 
                 <Text style={dynamicStyles.label}>Name</Text>
@@ -194,11 +268,10 @@ export default function Profile() {
                 >
                   <Text style={dynamicStyles.buttonText}>Cancel</Text>
                 </Pressable>
-              </View>
-            </View>
+              </ScrollView>
+            </KeyboardAvoidingView>
           </TouchableWithoutFeedback>
         </Modal>
-      </KeyboardAvoidingView>
     </View>
   );
 }
@@ -218,7 +291,7 @@ const styles = (isDark) => {
   };
 
   return StyleSheet.create({
-    container: { paddingTop: 4, paddingBottom: 10},
+    container: { flex: 1, paddingTop: 4, paddingBottom: 10, backgroundColor: colors.background },
     
     header: {
       fontSize: 20,
@@ -247,6 +320,35 @@ const styles = (isDark) => {
     saveButton: {
       backgroundColor: colors.buttonSecondary,
     },
+    secondaryButton: {
+      borderWidth: 1,
+      borderColor: colors.buttonPrimary,
+    },
+    secondaryButtonText: {
+      color: colors.buttonPrimary,
+      fontWeight: "bold",
+      fontSize: 16,
+    },
+    settingsCard: {
+      marginHorizontal: 16,
+      marginTop: 24,
+      padding: 16,
+      borderRadius: 20,
+      backgroundColor: isDark ? "#1E293B" : "#FFFFFF",
+      borderWidth: 1,
+      borderColor: colors.inputBorder,
+    },
+    settingsTitle: {
+      fontSize: 16,
+      fontWeight: "700",
+      color: colors.text,
+    },
+    settingsHint: {
+      fontSize: 13,
+      color: colors.secondaryText,
+      marginTop: 2,
+      marginBottom: 8,
+    },
     cancelButton: {
       backgroundColor: colors.buttonDanger,
     },
@@ -260,6 +362,8 @@ const styles = (isDark) => {
     },
     modalContent: {
       width: "90%",
+      flexGrow: 0,
+      maxHeight: "85%",
       backgroundColor: colors.modalBg,
       borderRadius: 20,
       paddingHorizontal: 20,

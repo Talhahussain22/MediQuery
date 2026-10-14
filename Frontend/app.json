@@ -15,7 +15,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.surath83.mediquery",
+      "bundleIdentifier": "com.talhahussain22.mediquery",
       "icon": "./assets/images/ios-icon.png",
       "jsEngine": "hermes",
       "infoPlist": {
@@ -29,7 +29,7 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.surath83.mediquery",
+      "package": "com.talhahussain22.mediquery",
       "jsEngine": "hermes"
     },
     "web": {
@@ -61,7 +61,8 @@
           "android": {
             "compileSdkVersion": 36,
             "targetSdkVersion": 36,
-            "minSdkVersion": 24
+            "minSdkVersion": 24,
+            "usesCleartextTraffic": true
           }
         }
       ],
@@ -72,12 +73,8 @@
       "reactCompiler": false
     },
     "extra": {
-      "router": {},
-      "eas": {
-        "projectId": "e863d94d-75db-4dc6-bebc-7c0fcf6e614a"
-      }
+      "router": {}
     },
-    "jsEngine": "hermes",
-    "owner": "sur933"
+    "jsEngine": "hermes"
   }
 }

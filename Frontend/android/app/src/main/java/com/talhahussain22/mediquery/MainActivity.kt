@@ -1,4 +1,4 @@
-package com.surath83.mediquery
+package com.talhahussain22.mediquery
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build

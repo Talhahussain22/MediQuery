@@ -45,32 +45,75 @@ const OVERPASS_SERVERS = [
 const SHOP_CACHE_MS = 30 * 60 * 1000
 const shopCache = new Map()
 
+const USER_AGENT = 'MediQuery/1.0 (student project)'
+
+// Ask every mirror at once and take the first good answer.
 async function queryOverpass (query) {
-  let lastError
-  for (const server of OVERPASS_SERVERS) {
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 20000)
-    try {
-      const response = await fetch(server, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          // Overpass rejects requests without a User-Agent (HTTP 406)
-          'User-Agent': 'MediQuery/1.0 (student project)'
-        },
-        body: `data=${encodeURIComponent(query)}`,
-        signal: controller.signal
-      })
-      if (!response.ok) throw new Error(`HTTP ${response.status}`)
-      return await response.json()
-    } catch (err) {
-      lastError = err
-      console.warn(`⚠️  Overpass ${new URL(server).host} failed: ${err.message}`)
-    } finally {
-      clearTimeout(timer)
-    }
+  const controllers = OVERPASS_SERVERS.map(() => new AbortController())
+  const timer = setTimeout(() => controllers.forEach(c => c.abort()), 10000)
+  try {
+    return await Promise.any(OVERPASS_SERVERS.map(async (server, i) => {
+      try {
+        const response = await fetch(server, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            // Overpass rejects requests without a User-Agent (HTTP 406)
+            'User-Agent': USER_AGENT
+          },
+          body: `data=${encodeURIComponent(query)}`,
+          signal: controllers[i].signal
+        })
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        return await response.json()
+      } catch (err) {
+        console.warn(`⚠️  Overpass ${new URL(server).host} failed: ${err.message}`)
+        throw err
+      }
+    }))
+  } finally {
+    clearTimeout(timer)
+    controllers.forEach(c => c.abort())
   }
-  throw lastError
+}
+
+function distanceKm (lat1, lon1, lat2, lon2) {
+  const rad = Math.PI / 180
+  const a = Math.sin((lat2 - lat1) * rad / 2) ** 2 +
+    Math.cos(lat1 * rad) * Math.cos(lat2 * rad) * Math.sin((lon2 - lon1) * rad / 2) ** 2
+  return 12742 * Math.asin(Math.sqrt(a))
+}
+
+// Fallback for when every Overpass mirror is overloaded: Nominatim runs on
+// separate OSM infrastructure and supports a bounded keyword search.
+async function queryNominatim (lat, lon, radiusKm, limit) {
+  const dLat = radiusKm / 111
+  const dLon = dLat / Math.cos(lat * Math.PI / 180)
+  const params = new URLSearchParams({
+    q: 'pharmacy',
+    format: 'jsonv2',
+    limit: '50',
+    bounded: '1',
+    viewbox: [lon - dLon, lat + dLat, lon + dLon, lat - dLat].join(',')
+  })
+  const response = await fetch(`https://nominatim.openstreetmap.org/search?${params}`, {
+    headers: { 'User-Agent': USER_AGENT },
+    signal: AbortSignal.timeout(15000)
+  })
+  if (!response.ok) throw new Error(`Nominatim HTTP ${response.status}`)
+  const results = await response.json()
+  return results
+    .filter(r => ['pharmacy', 'chemist', 'drugstore'].includes(r.type))
+    .map(r => ({
+      id: Number(r.osm_id),
+      name: r.name || 'Medical Shop',
+      lat: Number(r.lat),
+      lon: Number(r.lon),
+      address: r.display_name.split(', ').slice(1, 3).join(', ') || 'Address not available'
+    }))
+    .filter(s => distanceKm(lat, lon, s.lat, s.lon) <= radiusKm)
+    .sort((a, b) => distanceKm(lat, lon, a.lat, a.lon) - distanceKm(lat, lon, b.lat, b.lon))
+    .slice(0, limit)
 }
 
 // 🌍 Get nearby medical shops
@@ -100,20 +143,24 @@ app.post('/get_medical_shops', async (req, res) => {
   if (cached && Date.now() - cached.time < SHOP_CACHE_MS) return res.json(cached.shops)
 
   try {
-    const data = await queryOverpass(query)
-    const elements = data.elements || []
-
-    const shops = elements.slice(0, MAX_RESULTS).map(el => ({
-      id: el.id,
-      name: el.tags?.name || 'Medical Shop',
-      lat: el.lat,
-      lon: el.lon,
-      address:
-        el.tags?.['addr:street'] ||
-        el.tags?.['operator'] ||
-        el.tags?.['addr:full'] ||
-        'Address not available'
-    }))
+    let shops
+    try {
+      const data = await queryOverpass(query)
+      shops = (data.elements || []).slice(0, MAX_RESULTS).map(el => ({
+        id: el.id,
+        name: el.tags?.name || 'Medical Shop',
+        lat: el.lat,
+        lon: el.lon,
+        address:
+          el.tags?.['addr:street'] ||
+          el.tags?.['operator'] ||
+          el.tags?.['addr:full'] ||
+          'Address not available'
+      }))
+    } catch {
+      console.warn('⚠️  All Overpass mirrors failed; falling back to Nominatim')
+      shops = await queryNominatim(lat, lon, RADIUS / 1000, MAX_RESULTS)
+    }
 
     shopCache.set(cacheKey, { time: Date.now(), shops })
     res.json(shops)

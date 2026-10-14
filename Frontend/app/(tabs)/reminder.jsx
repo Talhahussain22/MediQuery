@@ -45,7 +45,7 @@ function computeNotificationDate(baseDate, hour, minute, offsetMinutes = 0) {
 export default function Reminder() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
-  const [first_name, setFirstName] = useState("John");
+  const [first_name, setFirstName] = useState("");
   const [medicine, setMedicine] = useState("");
   const [timeMode, setTimeMode] = useState("breakfast");
   const [customTime, setCustomTime] = useState(new Date());
@@ -288,7 +288,7 @@ export default function Reminder() {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 20}
     >
-      <View style={[styles.container]}>
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
         <Text style={[styles.header, { color: colors.text }]}>Reminder</Text>
 
         {/* SHARE BUTTON */}
@@ -446,14 +446,14 @@ export default function Reminder() {
 
         {/* List */}
         <Text style={[styles.sectionHeader, { color: colors.text }]}>
-          {first_name}&#39;s Reminders
+          {first_name ? `${first_name}'s Reminders` : "My Reminders"}
         </Text>
 
         <FlatList
           data={Array.isArray(reminders) ? reminders : []}
           keyExtractor={(item) => item?.id ?? Math.random().toString()}
           contentContainerStyle={{ padding: 6, paddingBottom: 16 }}
-          style={{ maxHeight: "32%", borderRadius: 18 }}
+          style={{ flex: 1, borderRadius: 18 }}
           ListEmptyComponent={
             <Text style={{ color: colors.text }}>No reminders yet.</Text>
           }
@@ -522,7 +522,7 @@ export default function Reminder() {
 }
 
 const styles = StyleSheet.create({
-  container: { flexGrow: 1, padding: 16, paddingBottom: 60 },
+  container: { flex: 1, padding: 16, paddingBottom: 8 },
   header: {
     fontSize: 20,
     fontWeight: "700",
