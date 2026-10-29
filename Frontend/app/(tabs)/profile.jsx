@@ -15,9 +15,22 @@ import {
   Alert,
 } from "react-native";
 import { BlurView } from "expo-blur";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import Profile_Card from "@/components/profile_card";
 import config, { normalizeApiBase, setApiBase } from "@/config";
+import { useAuth } from "@/context/AuthContext";
+import { loadProfile, saveProfile as persistProfile } from "@/lib/profileStore";
+
+function AccountCard({ s, user, onSignOut }) {
+  return (
+    <View style={s.settingsCard}>
+      <Text style={s.settingsTitle}>Account</Text>
+      <Text style={s.settingsHint}>Signed in as {user?.email}</Text>
+      <Pressable style={[s.button, s.cancelButton]} onPress={onSignOut}>
+        <Text style={s.buttonText}>Sign Out</Text>
+      </Pressable>
+    </View>
+  );
+}
 
 function ServerSettings({ s, isDark }) {
   const [address, setAddress] = useState(config.API_BASE);
@@ -88,7 +101,6 @@ function ServerSettings({ s, isDark }) {
   );
 }
 
-const PROFILE_KEY = "USER_PROFILE_V1";
 const genderOptions = ["male", "female", "other"];
 
 const DEFAULT_PROFILE = {
@@ -103,39 +115,42 @@ export default function Profile() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
   const dynamicStyles = styles(isDark);
+  const { user, signOut } = useAuth();
   const [profileData, setProfileData] = useState(DEFAULT_PROFILE);
   const [editModalVisible, setEditModalVisible] = useState(false);
-  const isFirstLoad = useRef(true);
+  const loaded = useRef(false);
+  const userId = user?.id;
+  const fullName = user?.user_metadata?.full_name;
 
   useEffect(() => {
-    const loadProfile = async () => {
-      try {
-        const saved = await AsyncStorage.getItem(PROFILE_KEY);
-        if (saved) setProfileData(JSON.parse(saved));
-      } catch (err) {
-        console.error("Error loading user profile:", err);
-      }
-    };
-
-    loadProfile();
-  }, []);
+    if (!userId) return;
+    loaded.current = false;
+    loadProfile(userId)
+      .then((saved) => {
+        setProfileData(
+          saved ?? { ...DEFAULT_PROFILE, ...(fullName ? { name: fullName } : {}) },
+        );
+      })
+      .catch((err) => console.error("Error loading user profile:", err))
+      .finally(() => {
+        loaded.current = true;
+      });
+  }, [userId, fullName]);
 
   useEffect(() => {
-    if (isFirstLoad.current) {
-      isFirstLoad.current = false;
-      return;
-    }
+    // Don't overwrite the stored profile with defaults before it has loaded.
+    if (!loaded.current || !userId) return;
+    persistProfile(userId, profileData).catch((err) =>
+      console.error("Error saving profile:", err),
+    );
+  }, [profileData, userId]);
 
-    const saveProfile = async () => {
-      try {
-        await AsyncStorage.setItem(PROFILE_KEY, JSON.stringify(profileData));
-      } catch (err) {
-        console.error("Error saving profile:", err);
-      }
-    };
-
-    saveProfile();
-  }, [profileData]);
+  const confirmSignOut = () => {
+    Alert.alert("Sign out", "Do you want to sign out?", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Sign Out", style: "destructive", onPress: () => signOut() },
+    ]);
+  };
 
   const handleChange = useCallback((field, value) => {
     setProfileData((prev) => ({ ...prev, [field]: value }));
@@ -165,6 +180,8 @@ export default function Profile() {
         >
           <Text style={dynamicStyles.buttonText}>Edit Profile</Text>
         </Pressable>
+
+        <AccountCard s={dynamicStyles} user={user} onSignOut={confirmSignOut} />
 
         <ServerSettings s={dynamicStyles} isDark={isDark} />
       </ScrollView>

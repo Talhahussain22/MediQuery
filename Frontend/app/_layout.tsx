@@ -9,28 +9,44 @@ import "react-native-reanimated";
 import { useEffect, useState } from "react";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { loadSavedApiBase } from "@/config";
+import { AuthProvider, useAuth } from "@/context/AuthContext";
 
-export const unstable_settings = { anchor: "(tabs)" };
-export default function RootLayout() {
-  const colorScheme = useColorScheme();
-  const [ready, setReady] = useState(false);
+function RootNavigator() {
+  const { session, loading } = useAuth();
+  const [configReady, setConfigReady] = useState(false);
 
   useEffect(() => {
-    loadSavedApiBase().finally(() => setReady(true));
+    loadSavedApiBase().finally(() => setConfigReady(true));
   }, []);
 
-  if (!ready) return null;
+  if (loading || !configReady) return null;
 
   return (
-    <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
-      <Stack>
+    <Stack>
+      {/* Signed in: the app. Signed out: only the auth screens are reachable. */}
+      <Stack.Protected guard={!!session}>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen
           name="modal"
           options={{ presentation: "modal", title: "Modal" }}
         />
-      </Stack>
-      <StatusBar style="auto" />
-    </ThemeProvider>
+      </Stack.Protected>
+      <Stack.Protected guard={!session}>
+        <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+      </Stack.Protected>
+    </Stack>
+  );
+}
+
+export default function RootLayout() {
+  const colorScheme = useColorScheme();
+
+  return (
+    <AuthProvider>
+      <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
+        <RootNavigator />
+        <StatusBar style="auto" />
+      </ThemeProvider>
+    </AuthProvider>
   );
 }

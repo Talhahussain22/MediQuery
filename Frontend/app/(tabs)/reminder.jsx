@@ -17,6 +17,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Feather } from "@expo/vector-icons";
 import { useFocusEffect } from "expo-router";
 import * as Notifications from "expo-notifications";
+import { useAuth } from "@/context/AuthContext";
+import { loadProfile } from "@/lib/profileStore";
 
 const STORAGE_KEY = "@reminders_v1";
 const PRESET_TIMES = {
@@ -45,6 +47,9 @@ function computeNotificationDate(baseDate, hour, minute, offsetMinutes = 0) {
 export default function Reminder() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === "dark";
+  const { user } = useAuth();
+  const userId = user?.id;
+  const fullName = user?.user_metadata?.full_name;
   const [first_name, setFirstName] = useState("");
   const [medicine, setMedicine] = useState("");
   const [timeMode, setTimeMode] = useState("breakfast");
@@ -60,18 +65,16 @@ export default function Reminder() {
     useCallback(() => {
       const loadName = async () => {
         try {
-          const raw = await AsyncStorage.getItem("USER_PROFILE_V1");
-          if (raw) {
-            const profile = JSON.parse(raw);
-            if (profile?.name) setFirstName(profile.name);
-          }
+          const profile = userId ? await loadProfile(userId) : null;
+          const name = profile?.name || fullName;
+          if (name) setFirstName(name);
         } catch (e) {
           console.error("Failed to load name", e);
         }
       };
 
       loadName();
-    }, []),
+    }, [userId, fullName]),
   );
 
   useEffect(() => {
